@@ -27,22 +27,34 @@ func collectFields(t reflect.Type) []fieldInfo {
 func collectFieldsRecursive(t reflect.Type, indexPath []int, fields *[]fieldInfo) {
 	for i := 0; i < t.NumField(); i++ {
 		field := t.Field(i)
-		currentPath := append(indexPath, i)
+		// Create a new slice to avoid shared memory issues
+		currentPath := make([]int, len(indexPath), len(indexPath)+1)
+		copy(currentPath, indexPath)
+		currentPath = append(currentPath, i)
 
 		// If this is an anonymous (embedded) struct field, recurse into it
-		if field.Anonymous && field.Type.Kind() == reflect.Struct {
-			collectFieldsRecursive(field.Type, currentPath, fields)
-		} else {
-			// Regular field - add it to the list
-			tag := field.Tag.Get("csv")
-			if tag == "" {
-				tag = field.Name
+		// Handle both direct struct embedding and pointer-to-struct embedding
+		fieldType := field.Type
+		if field.Anonymous {
+			// Dereference pointer types for embedded fields
+			if fieldType.Kind() == reflect.Ptr {
+				fieldType = fieldType.Elem()
 			}
-			*fields = append(*fields, fieldInfo{
-				name:      tag,
-				indexPath: currentPath,
-			})
+			if fieldType.Kind() == reflect.Struct {
+				collectFieldsRecursive(fieldType, currentPath, fields)
+				continue
+			}
 		}
+		
+		// Regular field - add it to the list
+		tag := field.Tag.Get("csv")
+		if tag == "" {
+			tag = field.Name
+		}
+		*fields = append(*fields, fieldInfo{
+			name:      tag,
+			indexPath: currentPath,
+		})
 	}
 }
 
@@ -50,6 +62,14 @@ func collectFieldsRecursive(t reflect.Type, indexPath []int, fields *[]fieldInfo
 func getFieldByIndexPath(v reflect.Value, indexPath []int) reflect.Value {
 	for _, idx := range indexPath {
 		v = v.Field(idx)
+		// Dereference pointer fields if needed
+		if v.Kind() == reflect.Ptr {
+			if v.IsNil() {
+				// Initialize nil pointer for struct fields
+				v.Set(reflect.New(v.Type().Elem()))
+			}
+			v = v.Elem()
+		}
 	}
 	return v
 }

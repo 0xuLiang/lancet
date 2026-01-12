@@ -306,29 +306,21 @@ func TestUnmarshal_EmbeddedStructSingle(t *testing.T) {
 	}
 }
 
-// Test case that matches the problem statement scenario
-type MsgRosbagToRecord struct {
-	ID         int64  `csv:"id"`
-	Vin        string `csv:"vin"`
-	Scheme     string `csv:"scheme"`
-	BucketName string `csv:"bucket_name"`
+// Test embedded pointer-to-struct
+type PtrBaseRecord struct {
+	ID   int64  `csv:"id"`
+	Name string `csv:"name"`
 }
 
-type InputRecord struct {
-	MsgRosbagToRecord
-	DataName string `csv:"data_name"`
+type PtrExtendedRecord struct {
+	*PtrBaseRecord
+	Extra string `csv:"extra"`
 }
 
-func TestMarshal_InputRecord(t *testing.T) {
-	records := []InputRecord{
-		{
-			MsgRosbagToRecord: MsgRosbagToRecord{ID: 1, Vin: "VIN001", Scheme: "http", BucketName: "bucket1"},
-			DataName:          "data1",
-		},
-		{
-			MsgRosbagToRecord: MsgRosbagToRecord{ID: 2, Vin: "VIN002", Scheme: "https", BucketName: "bucket2"},
-			DataName:          "data2",
-		},
+func TestMarshal_EmbeddedPointerStruct(t *testing.T) {
+	records := []PtrExtendedRecord{
+		{PtrBaseRecord: &PtrBaseRecord{ID: 1, Name: "Alice"}, Extra: "E1"},
+		{PtrBaseRecord: &PtrBaseRecord{ID: 2, Name: "Bob"}, Extra: "E2"},
 	}
 
 	data, err := Marshal(records)
@@ -336,38 +328,40 @@ func TestMarshal_InputRecord(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	expected := `id,vin,scheme,bucket_name,data_name
-1,VIN001,http,bucket1,data1
-2,VIN002,https,bucket2,data2
+	expected := `id,name,extra
+1,Alice,E1
+2,Bob,E2
 `
 	if string(data) != expected {
-		t.Errorf("unexpected result:\ngot:\n%v\nwant:\n%v", string(data), expected)
+		t.Errorf("unexpected result: got %v, want %v", string(data), expected)
 	}
 }
 
-func TestUnmarshal_InputRecord(t *testing.T) {
-	data := []byte(`id,vin,scheme,bucket_name,data_name
-1,VIN001,http,bucket1,data1
-2,VIN002,https,bucket2,data2
+func TestUnmarshal_EmbeddedPointerStruct(t *testing.T) {
+	data := []byte(`id,name,extra
+1,Alice,E1
+2,Bob,E2
 `)
 
-	var records []InputRecord
+	var records []PtrExtendedRecord
 	err := Unmarshal(data, &records)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	expected := []InputRecord{
-		{
-			MsgRosbagToRecord: MsgRosbagToRecord{ID: 1, Vin: "VIN001", Scheme: "http", BucketName: "bucket1"},
-			DataName:          "data1",
-		},
-		{
-			MsgRosbagToRecord: MsgRosbagToRecord{ID: 2, Vin: "VIN002", Scheme: "https", BucketName: "bucket2"},
-			DataName:          "data2",
-		},
+	if len(records) != 2 {
+		t.Fatalf("expected 2 records, got %d", len(records))
 	}
-	if !reflect.DeepEqual(records, expected) {
-		t.Errorf("unexpected result:\ngot:\n%+v\nwant:\n%+v", records, expected)
+
+	if records[0].PtrBaseRecord == nil {
+		t.Fatal("expected PtrBaseRecord to be initialized")
+	}
+
+	if records[0].ID != 1 || records[0].Name != "Alice" || records[0].Extra != "E1" {
+		t.Errorf("unexpected first record: %+v", records[0])
+	}
+
+	if records[1].ID != 2 || records[1].Name != "Bob" || records[1].Extra != "E2" {
+		t.Errorf("unexpected second record: %+v", records[1])
 	}
 }
