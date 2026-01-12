@@ -365,3 +365,73 @@ func TestUnmarshal_EmbeddedPointerStruct(t *testing.T) {
 		t.Errorf("unexpected second record: %+v", records[1])
 	}
 }
+
+// Test omitempty functionality
+type RecordWithOmitempty struct {
+	Name     string `csv:"name"`
+	Age      int    `csv:"age,omitempty"`
+	Email    string `csv:"email,omitempty"`
+	Active   bool   `csv:"active,omitempty"`
+	Score    float64 `csv:"score,omitempty"`
+}
+
+func TestMarshal_Omitempty(t *testing.T) {
+	records := []RecordWithOmitempty{
+		{Name: "Alice", Age: 25, Email: "alice@example.com", Active: true, Score: 95.5},
+		{Name: "Bob", Age: 0, Email: "", Active: false, Score: 0},
+		{Name: "Charlie", Age: 30, Email: "charlie@example.com", Active: false, Score: 0},
+	}
+
+	data, err := Marshal(records)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := `name,age,email,active,score
+Alice,25,alice@example.com,true,95.5
+Bob,,,,
+Charlie,30,charlie@example.com,,
+`
+	if string(data) != expected {
+		t.Errorf("unexpected result:\ngot:\n%v\nwant:\n%v", string(data), expected)
+	}
+}
+
+func TestMarshal_OmitemptySingle(t *testing.T) {
+	record := RecordWithOmitempty{Name: "Alice", Age: 0, Email: "", Active: false, Score: 0}
+
+	data, err := Marshal(record)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := `name,age,email,active,score
+Alice,,,,
+`
+	if string(data) != expected {
+		t.Errorf("unexpected result:\ngot:\n%v\nwant:\n%v", string(data), expected)
+	}
+}
+
+func TestUnmarshal_Omitempty(t *testing.T) {
+	data := []byte(`name,age,email,active,score
+Alice,25,alice@example.com,true,95.5
+Bob,,,,
+Charlie,30,charlie@example.com,,
+`)
+
+	var records []RecordWithOmitempty
+	err := Unmarshal(data, &records)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := []RecordWithOmitempty{
+		{Name: "Alice", Age: 25, Email: "alice@example.com", Active: true, Score: 95.5},
+		{Name: "Bob", Age: 0, Email: "", Active: false, Score: 0},
+		{Name: "Charlie", Age: 30, Email: "charlie@example.com", Active: false, Score: 0},
+	}
+	if !reflect.DeepEqual(records, expected) {
+		t.Errorf("unexpected result:\ngot:\n%+v\nwant:\n%+v", records, expected)
+	}
+}

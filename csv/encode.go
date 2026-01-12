@@ -14,6 +14,7 @@ import (
 type fieldInfo struct {
 	name      string
 	indexPath []int
+	omitempty bool
 }
 
 // collectFields recursively collects all fields from a struct type, including embedded structs
@@ -48,13 +49,95 @@ func collectFieldsRecursive(t reflect.Type, indexPath []int, fields *[]fieldInfo
 
 		// Regular field - add it to the list
 		tag := field.Tag.Get("csv")
+		var fieldName string
+		var omitempty bool
+		
 		if tag == "" {
-			tag = field.Name
+			fieldName = field.Name
+		} else {
+			// Parse tag: "name,omitempty" or just "name"
+			parts := splitTag(tag)
+			fieldName = parts[0]
+			for _, opt := range parts[1:] {
+				if opt == "omitempty" {
+					omitempty = true
+				}
+			}
 		}
+		
 		*fields = append(*fields, fieldInfo{
-			name:      tag,
+			name:      fieldName,
 			indexPath: currentPath,
+			omitempty: omitempty,
 		})
+	}
+}
+
+// splitTag splits a struct tag into name and options
+func splitTag(tag string) []string {
+	// Split by comma, but trim spaces
+	var parts []string
+	for _, part := range splitCSVTag(tag) {
+		part = trimSpace(part)
+		if part != "" {
+			parts = append(parts, part)
+		}
+	}
+	return parts
+}
+
+// splitCSVTag splits a tag by comma
+func splitCSVTag(s string) []string {
+	var parts []string
+	current := ""
+	for _, ch := range s {
+		if ch == ',' {
+			parts = append(parts, current)
+			current = ""
+		} else {
+			current += string(ch)
+		}
+	}
+	parts = append(parts, current)
+	return parts
+}
+
+// trimSpace removes leading and trailing spaces
+func trimSpace(s string) string {
+	start := 0
+	end := len(s)
+	for start < end && (s[start] == ' ' || s[start] == '\t') {
+		start++
+	}
+	for end > start && (s[end-1] == ' ' || s[end-1] == '\t') {
+		end--
+	}
+	return s[start:end]
+}
+
+// isZeroValue checks if a reflect.Value is the zero value for its type
+func isZeroValue(v reflect.Value) bool {
+	switch v.Kind() {
+	case reflect.Bool:
+		return !v.Bool()
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return v.Int() == 0
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return v.Uint() == 0
+	case reflect.Float32, reflect.Float64:
+		return v.Float() == 0
+	case reflect.String:
+		return v.String() == ""
+	case reflect.Ptr, reflect.Interface:
+		return v.IsNil()
+	case reflect.Struct:
+		// For time.Time, check if it's the zero time
+		if v.Type() == reflect.TypeOf(time.Time{}) {
+			return v.Interface().(time.Time).IsZero()
+		}
+		return false
+	default:
+		return false
 	}
 }
 
@@ -129,30 +212,36 @@ func Marshal(v interface{}) ([]byte, error) {
 		for _, fieldInfo := range fields {
 			field := getFieldByIndexPath(rvElem, fieldInfo.indexPath)
 			var value string
-			switch field.Kind() {
-			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-				value = strconv.FormatInt(field.Int(), 10)
-			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-				value = strconv.FormatUint(field.Uint(), 10)
-			case reflect.Float32, reflect.Float64:
-				value = strconv.FormatFloat(field.Float(), 'f', -1, 64)
-			case reflect.Bool:
-				value = strconv.FormatBool(field.Bool())
-			case reflect.String:
-				value = field.String()
-			case reflect.Struct:
-				if field.Type() == reflect.TypeOf(time.Time{}) {
-					t := field.Interface().(time.Time)
-					b, err := t.MarshalText()
-					if err != nil {
-						return nil, err
+			
+			// Check if field should be omitted (omitempty with zero value)
+			if fieldInfo.omitempty && isZeroValue(field) {
+				value = ""
+			} else {
+				switch field.Kind() {
+				case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+					value = strconv.FormatInt(field.Int(), 10)
+				case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+					value = strconv.FormatUint(field.Uint(), 10)
+				case reflect.Float32, reflect.Float64:
+					value = strconv.FormatFloat(field.Float(), 'f', -1, 64)
+				case reflect.Bool:
+					value = strconv.FormatBool(field.Bool())
+				case reflect.String:
+					value = field.String()
+				case reflect.Struct:
+					if field.Type() == reflect.TypeOf(time.Time{}) {
+						t := field.Interface().(time.Time)
+						b, err := t.MarshalText()
+						if err != nil {
+							return nil, err
+						}
+						value = string(b)
+					} else {
+						return nil, fmt.Errorf("unsupported struct type: %s", field.Type())
 					}
-					value = string(b)
-				} else {
-					return nil, fmt.Errorf("unsupported struct type: %s", field.Type())
+				default:
+					return nil, fmt.Errorf("unsupported field type: %s", field.Type())
 				}
-			default:
-				return nil, fmt.Errorf("unsupported field type: %s", field.Type())
 			}
 			record = append(record, value)
 		}
