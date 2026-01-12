@@ -306,7 +306,7 @@ func TestUnmarshal_EmbeddedStructSingle(t *testing.T) {
 	}
 }
 
-// Test embedded pointer-to-struct
+// Embedded pointer-to-struct test types
 type PtrBaseRecord struct {
 	ID   int64  `csv:"id"`
 	Name string `csv:"name"`

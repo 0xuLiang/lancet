@@ -45,7 +45,7 @@ func collectFieldsRecursive(t reflect.Type, indexPath []int, fields *[]fieldInfo
 				continue
 			}
 		}
-		
+
 		// Regular field - add it to the list
 		tag := field.Tag.Get("csv")
 		if tag == "" {
