@@ -28,7 +28,7 @@ func collectFieldsRecursive(t reflect.Type, indexPath []int, fields *[]fieldInfo
 	for i := 0; i < t.NumField(); i++ {
 		field := t.Field(i)
 		currentPath := append(indexPath, i)
-		
+
 		// If this is an anonymous (embedded) struct field, recurse into it
 		if field.Anonymous && field.Type.Kind() == reflect.Struct {
 			collectFieldsRecursive(field.Type, currentPath, fields)
@@ -184,7 +184,7 @@ func Unmarshal(data []byte, v interface{}) error {
 	}
 
 	headers := records[0]
-	
+
 	// Collect all fields including embedded struct fields
 	fields := collectFields(sliceType)
 	fieldMap := make(map[string][]int)
