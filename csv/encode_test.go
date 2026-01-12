@@ -220,3 +220,154 @@ func TestUnmarshal_HeaderOnlySingleStruct(t *testing.T) {
 		t.Fatalf("expected error when no data rows")
 	}
 }
+
+// Embedded struct tests
+type BaseRecord struct {
+	ID   int64  `csv:"id"`
+	Name string `csv:"name"`
+}
+
+type ExtendedRecord struct {
+	BaseRecord
+	Extra string `csv:"extra"`
+}
+
+func TestMarshal_EmbeddedStruct(t *testing.T) {
+	records := []ExtendedRecord{
+		{BaseRecord: BaseRecord{ID: 1, Name: "Alice"}, Extra: "E1"},
+		{BaseRecord: BaseRecord{ID: 2, Name: "Bob"}, Extra: "E2"},
+	}
+
+	data, err := Marshal(records)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := `id,name,extra
+1,Alice,E1
+2,Bob,E2
+`
+	if string(data) != expected {
+		t.Errorf("unexpected result: got %v, want %v", string(data), expected)
+	}
+}
+
+func TestMarshal_EmbeddedStructSingle(t *testing.T) {
+	record := ExtendedRecord{BaseRecord: BaseRecord{ID: 1, Name: "Alice"}, Extra: "E1"}
+
+	data, err := Marshal(record)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := `id,name,extra
+1,Alice,E1
+`
+	if string(data) != expected {
+		t.Errorf("unexpected result: got %v, want %v", string(data), expected)
+	}
+}
+
+func TestUnmarshal_EmbeddedStruct(t *testing.T) {
+	data := []byte(`id,name,extra
+1,Alice,E1
+2,Bob,E2
+`)
+
+	var records []ExtendedRecord
+	err := Unmarshal(data, &records)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := []ExtendedRecord{
+		{BaseRecord: BaseRecord{ID: 1, Name: "Alice"}, Extra: "E1"},
+		{BaseRecord: BaseRecord{ID: 2, Name: "Bob"}, Extra: "E2"},
+	}
+	if !reflect.DeepEqual(records, expected) {
+		t.Errorf("unexpected result: got %+v, want %+v", records, expected)
+	}
+}
+
+func TestUnmarshal_EmbeddedStructSingle(t *testing.T) {
+	data := []byte(`id,name,extra
+1,Alice,E1
+`)
+
+	var record ExtendedRecord
+	err := Unmarshal(data, &record)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := ExtendedRecord{BaseRecord: BaseRecord{ID: 1, Name: "Alice"}, Extra: "E1"}
+	if !reflect.DeepEqual(record, expected) {
+		t.Errorf("unexpected result: got %+v, want %+v", record, expected)
+	}
+}
+
+// Test case that matches the problem statement scenario
+type MsgRosbagToRecord struct {
+	ID         int64  `csv:"id"`
+	Vin        string `csv:"vin"`
+	Scheme     string `csv:"scheme"`
+	BucketName string `csv:"bucket_name"`
+}
+
+type InputRecord struct {
+	MsgRosbagToRecord
+	DataName string `csv:"data_name"`
+}
+
+func TestMarshal_InputRecord(t *testing.T) {
+	records := []InputRecord{
+		{
+			MsgRosbagToRecord: MsgRosbagToRecord{ID: 1, Vin: "VIN001", Scheme: "http", BucketName: "bucket1"},
+			DataName:          "data1",
+		},
+		{
+			MsgRosbagToRecord: MsgRosbagToRecord{ID: 2, Vin: "VIN002", Scheme: "https", BucketName: "bucket2"},
+			DataName:          "data2",
+		},
+	}
+
+	data, err := Marshal(records)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := `id,vin,scheme,bucket_name,data_name
+1,VIN001,http,bucket1,data1
+2,VIN002,https,bucket2,data2
+`
+	if string(data) != expected {
+		t.Errorf("unexpected result:\ngot:\n%v\nwant:\n%v", string(data), expected)
+	}
+}
+
+func TestUnmarshal_InputRecord(t *testing.T) {
+	data := []byte(`id,vin,scheme,bucket_name,data_name
+1,VIN001,http,bucket1,data1
+2,VIN002,https,bucket2,data2
+`)
+
+	var records []InputRecord
+	err := Unmarshal(data, &records)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := []InputRecord{
+		{
+			MsgRosbagToRecord: MsgRosbagToRecord{ID: 1, Vin: "VIN001", Scheme: "http", BucketName: "bucket1"},
+			DataName:          "data1",
+		},
+		{
+			MsgRosbagToRecord: MsgRosbagToRecord{ID: 2, Vin: "VIN002", Scheme: "https", BucketName: "bucket2"},
+			DataName:          "data2",
+		},
+	}
+	if !reflect.DeepEqual(records, expected) {
+		t.Errorf("unexpected result:\ngot:\n%+v\nwant:\n%+v", records, expected)
+	}
+}

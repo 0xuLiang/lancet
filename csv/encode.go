@@ -10,6 +10,50 @@ import (
 	"time"
 )
 
+// fieldInfo represents a field with its index path in the struct hierarchy
+type fieldInfo struct {
+	name      string
+	indexPath []int
+}
+
+// collectFields recursively collects all fields from a struct type, including embedded structs
+func collectFields(t reflect.Type) []fieldInfo {
+	var fields []fieldInfo
+	collectFieldsRecursive(t, nil, &fields)
+	return fields
+}
+
+// collectFieldsRecursive is a helper function that recursively collects fields
+func collectFieldsRecursive(t reflect.Type, indexPath []int, fields *[]fieldInfo) {
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		currentPath := append(indexPath, i)
+		
+		// If this is an anonymous (embedded) struct field, recurse into it
+		if field.Anonymous && field.Type.Kind() == reflect.Struct {
+			collectFieldsRecursive(field.Type, currentPath, fields)
+		} else {
+			// Regular field - add it to the list
+			tag := field.Tag.Get("csv")
+			if tag == "" {
+				tag = field.Name
+			}
+			*fields = append(*fields, fieldInfo{
+				name:      tag,
+				indexPath: currentPath,
+			})
+		}
+	}
+}
+
+// getFieldByIndexPath retrieves a field value using the index path
+func getFieldByIndexPath(v reflect.Value, indexPath []int) reflect.Value {
+	for _, idx := range indexPath {
+		v = v.Field(idx)
+	}
+	return v
+}
+
 func Marshal(v interface{}) ([]byte, error) {
 	rv := reflect.ValueOf(v)
 	var sliceValue reflect.Value
@@ -44,14 +88,11 @@ func Marshal(v interface{}) ([]byte, error) {
 		return nil, errors.New("element must be a struct")
 	}
 
+	// Collect all fields including embedded struct fields
+	fields := collectFields(sliceType)
 	var headers []string
-	for i := 0; i < sliceType.NumField(); i++ {
-		field := sliceType.Field(i)
-		tag := field.Tag.Get("csv")
-		if tag == "" {
-			tag = field.Name
-		}
-		headers = append(headers, tag)
+	for _, field := range fields {
+		headers = append(headers, field.name)
 	}
 
 	var records [][]string
@@ -65,8 +106,8 @@ func Marshal(v interface{}) ([]byte, error) {
 			}
 			rvElem = rvElem.Elem()
 		}
-		for j := 0; j < rvElem.NumField(); j++ {
-			field := rvElem.Field(j)
+		for _, fieldInfo := range fields {
+			field := getFieldByIndexPath(rvElem, fieldInfo.indexPath)
 			var value string
 			switch field.Kind() {
 			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
@@ -143,18 +184,12 @@ func Unmarshal(data []byte, v interface{}) error {
 	}
 
 	headers := records[0]
-	fieldIndex := make(map[string]int)
-	for i := 0; i < sliceType.NumField(); i++ {
-		field := sliceType.Field(i)
-		tag := field.Tag.Get("csv")
-		if tag == "" {
-			tag = field.Name
-		}
-		for _, header := range headers {
-			if tag == header {
-				fieldIndex[header] = i
-			}
-		}
+	
+	// Collect all fields including embedded struct fields
+	fields := collectFields(sliceType)
+	fieldMap := make(map[string][]int)
+	for _, field := range fields {
+		fieldMap[field.name] = field.indexPath
 	}
 
 	for _, record := range records[1:] {
@@ -166,8 +201,8 @@ func Unmarshal(data []byte, v interface{}) error {
 		for i := 0; i < limit; i++ {
 			value := record[i]
 			header := headers[i]
-			if fi, ok := fieldIndex[header]; ok {
-				field := newValue.Elem().Field(fi)
+			if indexPath, ok := fieldMap[header]; ok {
+				field := getFieldByIndexPath(newValue.Elem(), indexPath)
 				switch field.Kind() {
 				case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 					var intValue int64
