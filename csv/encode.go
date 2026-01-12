@@ -193,9 +193,43 @@ func Marshal(v interface{}) ([]byte, error) {
 
 	// Collect all fields including embedded struct fields
 	fields := collectFields(sliceType)
+	
+	// First pass: check which omitempty fields are empty across ALL records
+	columnsToInclude := make([]bool, len(fields))
+	for i, fieldInfo := range fields {
+		if !fieldInfo.omitempty {
+			// Non-omitempty fields are always included
+			columnsToInclude[i] = true
+			continue
+		}
+		
+		// For omitempty fields, check if ANY record has a non-zero value
+		hasNonZeroValue := false
+		for j := 0; j < sliceValue.Len(); j++ {
+			rvElem := sliceValue.Index(j)
+			if rvElem.Kind() == reflect.Ptr {
+				if rvElem.IsNil() {
+					continue
+				}
+				rvElem = rvElem.Elem()
+			}
+			field := getFieldByIndexPath(rvElem, fieldInfo.indexPath)
+			if !isZeroValue(field) {
+				hasNonZeroValue = true
+				break
+			}
+		}
+		columnsToInclude[i] = hasNonZeroValue
+	}
+	
+	// Build headers only for included columns
 	var headers []string
-	for _, field := range fields {
-		headers = append(headers, field.name)
+	var includedFields []fieldInfo
+	for i, field := range fields {
+		if columnsToInclude[i] {
+			headers = append(headers, field.name)
+			includedFields = append(includedFields, field)
+		}
 	}
 
 	var records [][]string
@@ -209,39 +243,34 @@ func Marshal(v interface{}) ([]byte, error) {
 			}
 			rvElem = rvElem.Elem()
 		}
-		for _, fieldInfo := range fields {
+		for _, fieldInfo := range includedFields {
 			field := getFieldByIndexPath(rvElem, fieldInfo.indexPath)
 			var value string
 			
-			// Check if field should be omitted (omitempty with zero value)
-			if fieldInfo.omitempty && isZeroValue(field) {
-				value = ""
-			} else {
-				switch field.Kind() {
-				case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-					value = strconv.FormatInt(field.Int(), 10)
-				case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-					value = strconv.FormatUint(field.Uint(), 10)
-				case reflect.Float32, reflect.Float64:
-					value = strconv.FormatFloat(field.Float(), 'f', -1, 64)
-				case reflect.Bool:
-					value = strconv.FormatBool(field.Bool())
-				case reflect.String:
-					value = field.String()
-				case reflect.Struct:
-					if field.Type() == reflect.TypeOf(time.Time{}) {
-						t := field.Interface().(time.Time)
-						b, err := t.MarshalText()
-						if err != nil {
-							return nil, err
-						}
-						value = string(b)
-					} else {
-						return nil, fmt.Errorf("unsupported struct type: %s", field.Type())
+			switch field.Kind() {
+			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+				value = strconv.FormatInt(field.Int(), 10)
+			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+				value = strconv.FormatUint(field.Uint(), 10)
+			case reflect.Float32, reflect.Float64:
+				value = strconv.FormatFloat(field.Float(), 'f', -1, 64)
+			case reflect.Bool:
+				value = strconv.FormatBool(field.Bool())
+			case reflect.String:
+				value = field.String()
+			case reflect.Struct:
+				if field.Type() == reflect.TypeOf(time.Time{}) {
+					t := field.Interface().(time.Time)
+					b, err := t.MarshalText()
+					if err != nil {
+						return nil, err
 					}
-				default:
-					return nil, fmt.Errorf("unsupported field type: %s", field.Type())
+					value = string(b)
+				} else {
+					return nil, fmt.Errorf("unsupported struct type: %s", field.Type())
 				}
+			default:
+				return nil, fmt.Errorf("unsupported field type: %s", field.Type())
 			}
 			record = append(record, value)
 		}

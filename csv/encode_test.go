@@ -387,10 +387,38 @@ func TestMarshal_Omitempty(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
+	// Age and Email have non-zero values in at least one record, so they're included
+	// Active has at least one true value, so it's included
+	// Score has at least one non-zero value, so it's included
+	// All columns are present, zero values are output normally
 	expected := `name,age,email,active,score
 Alice,25,alice@example.com,true,95.5
-Bob,,,,
-Charlie,30,charlie@example.com,,
+Bob,0,,false,0
+Charlie,30,charlie@example.com,false,0
+`
+	if string(data) != expected {
+		t.Errorf("unexpected result:\ngot:\n%v\nwant:\n%v", string(data), expected)
+	}
+}
+
+func TestMarshal_OmitemptyAllZero(t *testing.T) {
+	// When ALL records have zero values for omitempty fields, those columns should be omitted
+	records := []RecordWithOmitempty{
+		{Name: "Alice", Age: 0, Email: "", Active: false, Score: 0},
+		{Name: "Bob", Age: 0, Email: "", Active: false, Score: 0},
+		{Name: "Charlie", Age: 0, Email: "", Active: false, Score: 0},
+	}
+
+	data, err := Marshal(records)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Only name column should be present since all omitempty fields are zero across all records
+	expected := `name
+Alice
+Bob
+Charlie
 `
 	if string(data) != expected {
 		t.Errorf("unexpected result:\ngot:\n%v\nwant:\n%v", string(data), expected)
@@ -398,6 +426,7 @@ Charlie,30,charlie@example.com,,
 }
 
 func TestMarshal_OmitemptySingle(t *testing.T) {
+	// For a single record, omitempty fields with zero values should be omitted
 	record := RecordWithOmitempty{Name: "Alice", Age: 0, Email: "", Active: false, Score: 0}
 
 	data, err := Marshal(record)
@@ -405,8 +434,9 @@ func TestMarshal_OmitemptySingle(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	expected := `name,age,email,active,score
-Alice,,,,
+	// Only name column should be present
+	expected := `name
+Alice
 `
 	if string(data) != expected {
 		t.Errorf("unexpected result:\ngot:\n%v\nwant:\n%v", string(data), expected)
@@ -414,10 +444,11 @@ Alice,,,,
 }
 
 func TestUnmarshal_Omitempty(t *testing.T) {
-	data := []byte(`name,age,email,active,score
-Alice,25,alice@example.com,true,95.5
-Bob,,,,
-Charlie,30,charlie@example.com,,
+	// Test unmarshaling with some fields present and some omitted
+	data := []byte(`name,age,email
+Alice,25,alice@example.com
+Bob,0,
+Charlie,30,charlie@example.com
 `)
 
 	var records []RecordWithOmitempty
@@ -427,7 +458,7 @@ Charlie,30,charlie@example.com,,
 	}
 
 	expected := []RecordWithOmitempty{
-		{Name: "Alice", Age: 25, Email: "alice@example.com", Active: true, Score: 95.5},
+		{Name: "Alice", Age: 25, Email: "alice@example.com", Active: false, Score: 0},
 		{Name: "Bob", Age: 0, Email: "", Active: false, Score: 0},
 		{Name: "Charlie", Age: 30, Email: "charlie@example.com", Active: false, Score: 0},
 	}
