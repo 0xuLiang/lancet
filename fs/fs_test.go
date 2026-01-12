@@ -92,7 +92,7 @@ func TestReadJsonFile(t *testing.T) {
 	var result map[string]string
 
 	// 使用 ReadJsonFile 函数来读取和解析 JSON 文件的内容
-	err = ReadJsonFile(&result, tempFile.Name())
+	err = ReadJsonFile(tempFile.Name(), &result)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestReadJsonFile(t *testing.T) {
 	assert.Equal(t, testData, result)
 
 	// 测试错误情况
-	err = ReadJsonFile(&result, "nonexistent.json")
+	err = ReadJsonFile("nonexistent.json", &result)
 	assert.Error(t, err)
 }
 
@@ -137,7 +137,7 @@ func TestReadCSVFile(t *testing.T) {
 	var result []CSVRecord
 
 	// 使用 ReadCSVFile 函数来读取和解析 CSV 文件的内容
-	err = ReadCSVFile(&result, tempFile.Name())
+	err = ReadCSVFile(tempFile.Name(), &result)
 	if err != nil {
 		t.Fatalf("ReadCSVFile returned error: %v", err)
 	}
@@ -146,7 +146,7 @@ func TestReadCSVFile(t *testing.T) {
 	assert.Equal(t, []CSVRecord{testData}, result)
 
 	// 测试错误情况
-	err = ReadCSVFile(&result, "nonexistent.csv")
+	err = ReadCSVFile("nonexistent.csv", &result)
 	assert.Error(t, err)
 }
 
@@ -162,7 +162,7 @@ func TestWriteJsonFile(t *testing.T) {
 	testData := map[string]string{"key": "value"}
 
 	// 使用 WriteJsonFile 函数将测试数据写入文件
-	err = WriteJsonFile(testData, tempFile.Name())
+	err = WriteJsonFile(tempFile.Name(), testData)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +196,7 @@ func TestWriteCSVFile(t *testing.T) {
 	testData := []CSVRecord{{Key: "key", Value: "value"}}
 
 	// 使用 WriteCSVFile 函数将测试数据写入文件
-	err = WriteCSVFile(testData, tempFile.Name())
+	err = WriteCSVFile(tempFile.Name(), testData)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +231,7 @@ func TestReadAndWriteYAMLFile(t *testing.T) {
 	testData := CSVRecord{Key: "key", Value: "value"}
 
 	// 使用 WriteFile 函数将测试数据写入文件
-	err = WriteFile(testData, tempFile.Name())
+	err = WriteFile(tempFile.Name(), testData)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +240,7 @@ func TestReadAndWriteYAMLFile(t *testing.T) {
 	var result CSVRecord
 
 	// 使用 ReadFile 函数来读取和解析 YAML 文件的内容
-	err = ReadFile(&result, tempFile.Name())
+	err = ReadFile(tempFile.Name(), &result)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,6 +249,6 @@ func TestReadAndWriteYAMLFile(t *testing.T) {
 	assert.Equal(t, testData, result)
 
 	// 测试错误情况
-	err = ReadFile(&result, "nonexistent.yaml")
+	err = ReadFile("nonexistent.yaml", &result)
 	assert.Error(t, err)
 }

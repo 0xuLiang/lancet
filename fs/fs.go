@@ -16,40 +16,40 @@ import (
 )
 
 // ReadJsonFile 从最新的 JSON 文件中读取数据
-func ReadJsonFile(out any, path string) error {
-	return ReadFile(out, path, json.Unmarshal)
+func ReadJsonFile(path string, out any) error {
+	return ReadFile(path, out, json.Unmarshal)
 }
 
 // ReadCSVFile 从最新的 CSV 文件中读取数据
-func ReadCSVFile(out any, path string) error {
-	return ReadFile(out, path, csv.Unmarshal)
+func ReadCSVFile(path string, out any) error {
+	return ReadFile(path, out, csv.Unmarshal)
 }
 
 // ReadYAMLFile 从最新的 YAML 文件中读取数据
-func ReadYAMLFile(out any, path string) error {
-	return ReadFile(out, path, yaml.Unmarshal)
+func ReadYAMLFile(path string, out any) error {
+	return ReadFile(path, out, yaml.Unmarshal)
 }
 
 // WriteJsonFile 将 data 写入到 JSON 文件中，如果 path 中包含 *，则会替换为当前时间戳（格式为 20060102_150405）
-func WriteJsonFile(data any, path string) error {
-	return WriteFile(data, path, json.Marshal)
+func WriteJsonFile(path string, data any) error {
+	return WriteFile(path, data, json.Marshal)
 }
 
 // WriteCSVFile 将 data 写入到 CSV 文件中，如果 path 中包含 *，则会替换为当前时间戳（格式为 20060102_150405）
-func WriteCSVFile(data any, path string) error {
-	return WriteFile(data, path, csv.Marshal)
+func WriteCSVFile(path string, data any) error {
+	return WriteFile(path, data, csv.Marshal)
 }
 
 // WriteYAMLFile 将 data 写入到 YAML 文件中，如果 path 中包含 *，则会替换为当前时间戳（格式为 20060102_150405）
-func WriteYAMLFile(data any, path string) error {
-	return WriteFile(data, path, yaml.Marshal)
+func WriteYAMLFile(path string, data any) error {
+	return WriteFile(path, data, yaml.Marshal)
 }
 
 type unmarshal func([]byte, any) error
 type marshal func(any) ([]byte, error)
 
 // ReadFile 从最新的文件中读取数据，没有指定 unmarshal 时，会根据后缀名自动选择对应类型的 unmarshal
-func ReadFile(out any, path string, unmarshal ...unmarshal) error {
+func ReadFile(path string, out any, unmarshal ...unmarshal) error {
 	filename, err := GetLatestFileByName(path)
 	if err != nil {
 		return fmt.Errorf("get latest file: %w", err)
@@ -81,7 +81,7 @@ func ReadFile(out any, path string, unmarshal ...unmarshal) error {
 }
 
 // WriteFile 将 data 写入到文件中，如果 path 中包含 *，则会替换为当前时间戳（格式为 20060102_150405）
-func WriteFile(data any, path string, marshal ...marshal) error {
+func WriteFile(path string, data any, marshal ...marshal) error {
 	if len(marshal) == 0 {
 		switch ext := filepath.Ext(path); ext {
 		case ".csv":
@@ -100,10 +100,10 @@ func WriteFile(data any, path string, marshal ...marshal) error {
 		return err
 	}
 
-	return SaveFile(bs, path)
+	return SaveFile(path, bs)
 }
 
-func SaveFile(data any, path string, optFns ...fsutil.OpenOptionFunc) error {
+func SaveFile(path string, data any, optFns ...fsutil.OpenOptionFunc) error {
 	return fsutil.SaveFile(TimestampFileName(path), data, optFns...)
 }
 
