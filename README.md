@@ -50,17 +50,23 @@ import (
     lancetcsv "github.com/0xuLiang/lancet/csv"
 )
 
+type Meta struct {
+    Source string `csv:"source"`
+}
+
+// 支持匿名（嵌入）字段，会被展平
 type Ticket struct {
+    Meta
     Name     string `csv:"name"`
     UserID   string `csv:"user_id"`
     Ticket   int    `csv:"ticket"`
     RecordID string `csv:"record_id"`
-    Source   string `csv:"source"`
+    Extra    string `csv:"extra,omitempty"` // omitempty: 所有记录均为零值时会整列省略
 }
 
 func main() {
     // Marshal: 结构体/切片 -> CSV 字节
-    rows := []Ticket{{Name: "Alice", UserID: "U001", Ticket: 1, RecordID: "R001", Source: "S001"}}
+    rows := []Ticket{{Meta: Meta{Source: "S001"}, Name: "Alice", UserID: "U001", Ticket: 1, RecordID: "R001"}}
     data, _ := lancetcsv.Marshal(rows)
     fmt.Printf("%s\n", data)
 
@@ -71,7 +77,10 @@ func main() {
 }
 ```
 
-支持以下输入：结构体、结构体指针、结构体切片、结构体指针切片；字段可用 `csv` 标签自定义表头。时间类型使用 `time.Time` 的文本编解码。
+支持：结构体 / 结构体指针 / 结构体切片 / 结构体指针切片；
+- 匿名（嵌入）结构体会被展平，包含指针形式的嵌入；
+- `csv:"name,omitempty"`：若所有记录该字段均为零值则整列省略，出现任意非零值即输出该列；
+- 时间类型使用 `time.Time` 的文本编解码。
 
 ### 文件工具 `fs`
 
@@ -95,11 +104,11 @@ type Item struct {
 
 func main() {
     // 按时间戳写入 CSV
-    _ = fs.WriteCSVFile([]Item{{Key: "k1", Value: "v1"}}, "./out/items-*.csv")
+    _ = fs.WriteCSVFile("./out/items-*.csv", []Item{{Key: "k1", Value: "v1"}})
 
     // 读取匹配的最新 CSV
     var items []Item
-    _ = fs.ReadCSVFile(&items, "./out/items-*.csv")
+    _ = fs.ReadCSVFile("./out/items-*.csv", &items)
     fmt.Println(len(items))
 }
 ```
