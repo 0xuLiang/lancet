@@ -10,6 +10,153 @@ import (
 	"time"
 )
 
+// fieldInfo represents a field with its index path in the struct hierarchy
+type fieldInfo struct {
+	name      string
+	indexPath []int
+	omitempty bool
+}
+
+// collectFields recursively collects all fields from a struct type, including embedded structs
+func collectFields(t reflect.Type) []fieldInfo {
+	var fields []fieldInfo
+	collectFieldsRecursive(t, nil, &fields)
+	return fields
+}
+
+// collectFieldsRecursive is a helper function that recursively collects fields
+func collectFieldsRecursive(t reflect.Type, indexPath []int, fields *[]fieldInfo) {
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		// Create a new slice to avoid shared memory issues
+		currentPath := make([]int, len(indexPath), len(indexPath)+1)
+		copy(currentPath, indexPath)
+		currentPath = append(currentPath, i)
+
+		// If this is an anonymous (embedded) struct field, recurse into it
+		// Handle both direct struct embedding and pointer-to-struct embedding
+		fieldType := field.Type
+		if field.Anonymous {
+			// Dereference pointer types for embedded fields
+			if fieldType.Kind() == reflect.Ptr {
+				fieldType = fieldType.Elem()
+			}
+			if fieldType.Kind() == reflect.Struct {
+				collectFieldsRecursive(fieldType, currentPath, fields)
+				continue
+			}
+		}
+
+		// Regular field - add it to the list
+		tag := field.Tag.Get("csv")
+		var fieldName string
+		var omitempty bool
+		
+		if tag == "" {
+			fieldName = field.Name
+		} else {
+			// Parse tag: "name,omitempty" or just "name"
+			parts := splitTag(tag)
+			fieldName = parts[0]
+			for _, opt := range parts[1:] {
+				if opt == "omitempty" {
+					omitempty = true
+				}
+			}
+		}
+		
+		*fields = append(*fields, fieldInfo{
+			name:      fieldName,
+			indexPath: currentPath,
+			omitempty: omitempty,
+		})
+	}
+}
+
+// splitTag splits a struct tag into name and options
+func splitTag(tag string) []string {
+	// Split by comma, but trim spaces
+	var parts []string
+	for _, part := range splitCSVTag(tag) {
+		part = trimSpace(part)
+		if part != "" {
+			parts = append(parts, part)
+		}
+	}
+	return parts
+}
+
+// splitCSVTag splits a tag by comma
+func splitCSVTag(s string) []string {
+	var parts []string
+	current := ""
+	for _, ch := range s {
+		if ch == ',' {
+			parts = append(parts, current)
+			current = ""
+		} else {
+			current += string(ch)
+		}
+	}
+	parts = append(parts, current)
+	return parts
+}
+
+// trimSpace removes leading and trailing spaces
+func trimSpace(s string) string {
+	start := 0
+	end := len(s)
+	for start < end && (s[start] == ' ' || s[start] == '\t') {
+		start++
+	}
+	for end > start && (s[end-1] == ' ' || s[end-1] == '\t') {
+		end--
+	}
+	return s[start:end]
+}
+
+// isZeroValue checks if a reflect.Value is the zero value for its type
+func isZeroValue(v reflect.Value) bool {
+	switch v.Kind() {
+	case reflect.Bool:
+		return !v.Bool()
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return v.Int() == 0
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return v.Uint() == 0
+	case reflect.Float32, reflect.Float64:
+		return v.Float() == 0
+	case reflect.String:
+		return v.String() == ""
+	case reflect.Ptr, reflect.Interface:
+		return v.IsNil()
+	case reflect.Struct:
+		// For time.Time, check if it's the zero time
+		if v.Type() == reflect.TypeOf(time.Time{}) {
+			return v.Interface().(time.Time).IsZero()
+		}
+		return false
+	default:
+		return false
+	}
+}
+
+// getFieldByIndexPath retrieves a field value using the index path
+func getFieldByIndexPath(v reflect.Value, indexPath []int) reflect.Value {
+	for _, idx := range indexPath {
+		v = v.Field(idx)
+		// Dereference pointer fields if needed
+		if v.Kind() == reflect.Ptr {
+			if v.IsNil() {
+				// Initialize nil pointer for struct fields
+				v.Set(reflect.New(v.Type().Elem()))
+			}
+			v = v.Elem()
+		}
+	}
+	return v
+}
+
 func Marshal(v interface{}) ([]byte, error) {
 	rv := reflect.ValueOf(v)
 	var sliceValue reflect.Value
@@ -44,14 +191,45 @@ func Marshal(v interface{}) ([]byte, error) {
 		return nil, errors.New("element must be a struct")
 	}
 
-	var headers []string
-	for i := 0; i < sliceType.NumField(); i++ {
-		field := sliceType.Field(i)
-		tag := field.Tag.Get("csv")
-		if tag == "" {
-			tag = field.Name
+	// Collect all fields including embedded struct fields
+	fields := collectFields(sliceType)
+	
+	// First pass: check which omitempty fields are empty across ALL records
+	columnsToInclude := make([]bool, len(fields))
+	for i, fieldInfo := range fields {
+		if !fieldInfo.omitempty {
+			// Non-omitempty fields are always included
+			columnsToInclude[i] = true
+			continue
 		}
-		headers = append(headers, tag)
+		
+		// For omitempty fields, check if ANY record has a non-zero value
+		hasNonZeroValue := false
+		for j := 0; j < sliceValue.Len(); j++ {
+			rvElem := sliceValue.Index(j)
+			if rvElem.Kind() == reflect.Ptr {
+				if rvElem.IsNil() {
+					continue
+				}
+				rvElem = rvElem.Elem()
+			}
+			field := getFieldByIndexPath(rvElem, fieldInfo.indexPath)
+			if !isZeroValue(field) {
+				hasNonZeroValue = true
+				break
+			}
+		}
+		columnsToInclude[i] = hasNonZeroValue
+	}
+	
+	// Build headers only for included columns
+	var headers []string
+	var includedFields []fieldInfo
+	for i, field := range fields {
+		if columnsToInclude[i] {
+			headers = append(headers, field.name)
+			includedFields = append(includedFields, field)
+		}
 	}
 
 	var records [][]string
@@ -65,9 +243,10 @@ func Marshal(v interface{}) ([]byte, error) {
 			}
 			rvElem = rvElem.Elem()
 		}
-		for j := 0; j < rvElem.NumField(); j++ {
-			field := rvElem.Field(j)
+		for _, fieldInfo := range includedFields {
+			field := getFieldByIndexPath(rvElem, fieldInfo.indexPath)
 			var value string
+			
 			switch field.Kind() {
 			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 				value = strconv.FormatInt(field.Int(), 10)
@@ -143,18 +322,12 @@ func Unmarshal(data []byte, v interface{}) error {
 	}
 
 	headers := records[0]
-	fieldIndex := make(map[string]int)
-	for i := 0; i < sliceType.NumField(); i++ {
-		field := sliceType.Field(i)
-		tag := field.Tag.Get("csv")
-		if tag == "" {
-			tag = field.Name
-		}
-		for _, header := range headers {
-			if tag == header {
-				fieldIndex[header] = i
-			}
-		}
+
+	// Collect all fields including embedded struct fields
+	fields := collectFields(sliceType)
+	fieldMap := make(map[string][]int)
+	for _, field := range fields {
+		fieldMap[field.name] = field.indexPath
 	}
 
 	for _, record := range records[1:] {
@@ -166,8 +339,8 @@ func Unmarshal(data []byte, v interface{}) error {
 		for i := 0; i < limit; i++ {
 			value := record[i]
 			header := headers[i]
-			if fi, ok := fieldIndex[header]; ok {
-				field := newValue.Elem().Field(fi)
+			if indexPath, ok := fieldMap[header]; ok {
+				field := getFieldByIndexPath(newValue.Elem(), indexPath)
 				switch field.Kind() {
 				case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 					var intValue int64

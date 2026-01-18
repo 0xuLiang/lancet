@@ -220,3 +220,249 @@ func TestUnmarshal_HeaderOnlySingleStruct(t *testing.T) {
 		t.Fatalf("expected error when no data rows")
 	}
 }
+
+// Embedded struct tests
+type BaseRecord struct {
+	ID   int64  `csv:"id"`
+	Name string `csv:"name"`
+}
+
+type ExtendedRecord struct {
+	BaseRecord
+	Extra string `csv:"extra"`
+}
+
+func TestMarshal_EmbeddedStruct(t *testing.T) {
+	records := []ExtendedRecord{
+		{BaseRecord: BaseRecord{ID: 1, Name: "Alice"}, Extra: "E1"},
+		{BaseRecord: BaseRecord{ID: 2, Name: "Bob"}, Extra: "E2"},
+	}
+
+	data, err := Marshal(records)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := `id,name,extra
+1,Alice,E1
+2,Bob,E2
+`
+	if string(data) != expected {
+		t.Errorf("unexpected result: got %v, want %v", string(data), expected)
+	}
+}
+
+func TestMarshal_EmbeddedStructSingle(t *testing.T) {
+	record := ExtendedRecord{BaseRecord: BaseRecord{ID: 1, Name: "Alice"}, Extra: "E1"}
+
+	data, err := Marshal(record)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := `id,name,extra
+1,Alice,E1
+`
+	if string(data) != expected {
+		t.Errorf("unexpected result: got %v, want %v", string(data), expected)
+	}
+}
+
+func TestUnmarshal_EmbeddedStruct(t *testing.T) {
+	data := []byte(`id,name,extra
+1,Alice,E1
+2,Bob,E2
+`)
+
+	var records []ExtendedRecord
+	err := Unmarshal(data, &records)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := []ExtendedRecord{
+		{BaseRecord: BaseRecord{ID: 1, Name: "Alice"}, Extra: "E1"},
+		{BaseRecord: BaseRecord{ID: 2, Name: "Bob"}, Extra: "E2"},
+	}
+	if !reflect.DeepEqual(records, expected) {
+		t.Errorf("unexpected result: got %+v, want %+v", records, expected)
+	}
+}
+
+func TestUnmarshal_EmbeddedStructSingle(t *testing.T) {
+	data := []byte(`id,name,extra
+1,Alice,E1
+`)
+
+	var record ExtendedRecord
+	err := Unmarshal(data, &record)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := ExtendedRecord{BaseRecord: BaseRecord{ID: 1, Name: "Alice"}, Extra: "E1"}
+	if !reflect.DeepEqual(record, expected) {
+		t.Errorf("unexpected result: got %+v, want %+v", record, expected)
+	}
+}
+
+// Embedded pointer-to-struct test types
+type PtrBaseRecord struct {
+	ID   int64  `csv:"id"`
+	Name string `csv:"name"`
+}
+
+type PtrExtendedRecord struct {
+	*PtrBaseRecord
+	Extra string `csv:"extra"`
+}
+
+func TestMarshal_EmbeddedPointerStruct(t *testing.T) {
+	records := []PtrExtendedRecord{
+		{PtrBaseRecord: &PtrBaseRecord{ID: 1, Name: "Alice"}, Extra: "E1"},
+		{PtrBaseRecord: &PtrBaseRecord{ID: 2, Name: "Bob"}, Extra: "E2"},
+	}
+
+	data, err := Marshal(records)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := `id,name,extra
+1,Alice,E1
+2,Bob,E2
+`
+	if string(data) != expected {
+		t.Errorf("unexpected result: got %v, want %v", string(data), expected)
+	}
+}
+
+func TestUnmarshal_EmbeddedPointerStruct(t *testing.T) {
+	data := []byte(`id,name,extra
+1,Alice,E1
+2,Bob,E2
+`)
+
+	var records []PtrExtendedRecord
+	err := Unmarshal(data, &records)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(records) != 2 {
+		t.Fatalf("expected 2 records, got %d", len(records))
+	}
+
+	if records[0].PtrBaseRecord == nil {
+		t.Fatal("expected PtrBaseRecord to be initialized")
+	}
+
+	if records[0].ID != 1 || records[0].Name != "Alice" || records[0].Extra != "E1" {
+		t.Errorf("unexpected first record: %+v", records[0])
+	}
+
+	if records[1].ID != 2 || records[1].Name != "Bob" || records[1].Extra != "E2" {
+		t.Errorf("unexpected second record: %+v", records[1])
+	}
+}
+
+// Test omitempty functionality
+type RecordWithOmitempty struct {
+	Name     string `csv:"name"`
+	Age      int    `csv:"age,omitempty"`
+	Email    string `csv:"email,omitempty"`
+	Active   bool   `csv:"active,omitempty"`
+	Score    float64 `csv:"score,omitempty"`
+}
+
+func TestMarshal_Omitempty(t *testing.T) {
+	records := []RecordWithOmitempty{
+		{Name: "Alice", Age: 25, Email: "alice@example.com", Active: true, Score: 95.5},
+		{Name: "Bob", Age: 0, Email: "", Active: false, Score: 0},
+		{Name: "Charlie", Age: 30, Email: "charlie@example.com", Active: false, Score: 0},
+	}
+
+	data, err := Marshal(records)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Age and Email have non-zero values in at least one record, so they're included
+	// Active has at least one true value, so it's included
+	// Score has at least one non-zero value, so it's included
+	// All columns are present, zero values are output normally
+	expected := `name,age,email,active,score
+Alice,25,alice@example.com,true,95.5
+Bob,0,,false,0
+Charlie,30,charlie@example.com,false,0
+`
+	if string(data) != expected {
+		t.Errorf("unexpected result:\ngot:\n%v\nwant:\n%v", string(data), expected)
+	}
+}
+
+func TestMarshal_OmitemptyAllZero(t *testing.T) {
+	// When ALL records have zero values for omitempty fields, those columns should be omitted
+	records := []RecordWithOmitempty{
+		{Name: "Alice", Age: 0, Email: "", Active: false, Score: 0},
+		{Name: "Bob", Age: 0, Email: "", Active: false, Score: 0},
+		{Name: "Charlie", Age: 0, Email: "", Active: false, Score: 0},
+	}
+
+	data, err := Marshal(records)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Only name column should be present since all omitempty fields are zero across all records
+	expected := `name
+Alice
+Bob
+Charlie
+`
+	if string(data) != expected {
+		t.Errorf("unexpected result:\ngot:\n%v\nwant:\n%v", string(data), expected)
+	}
+}
+
+func TestMarshal_OmitemptySingle(t *testing.T) {
+	// For a single record, omitempty fields with zero values should be omitted
+	record := RecordWithOmitempty{Name: "Alice", Age: 0, Email: "", Active: false, Score: 0}
+
+	data, err := Marshal(record)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Only name column should be present
+	expected := `name
+Alice
+`
+	if string(data) != expected {
+		t.Errorf("unexpected result:\ngot:\n%v\nwant:\n%v", string(data), expected)
+	}
+}
+
+func TestUnmarshal_Omitempty(t *testing.T) {
+	// Test unmarshaling with some fields present and some omitted
+	data := []byte(`name,age,email
+Alice,25,alice@example.com
+Bob,0,
+Charlie,30,charlie@example.com
+`)
+
+	var records []RecordWithOmitempty
+	err := Unmarshal(data, &records)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := []RecordWithOmitempty{
+		{Name: "Alice", Age: 25, Email: "alice@example.com", Active: false, Score: 0},
+		{Name: "Bob", Age: 0, Email: "", Active: false, Score: 0},
+		{Name: "Charlie", Age: 30, Email: "charlie@example.com", Active: false, Score: 0},
+	}
+	if !reflect.DeepEqual(records, expected) {
+		t.Errorf("unexpected result:\ngot:\n%+v\nwant:\n%+v", records, expected)
+	}
+}
